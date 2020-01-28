@@ -1,0 +1,6 @@
+{
+    "python.linting.pylintEnabled": false,
+    "python.linting.banditEnabled": true,
+    "python.linting.enabled": true,
+    "python.pythonPath": "/Users/schrenkk/Dropbox/Udacity/FSND/projects/01_fyyur/fyyur/venv/bin/python3"
+}

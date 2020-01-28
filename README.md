@@ -124,8 +124,8 @@ To start and run the local development server,
 1. Initialize and activate a virtualenv:
   ```
   $ cd YOUR_PROJECT_DIRECTORY_PATH/
-  $ virtualenv --no-site-packages env
-  $ source env/bin/activate
+  $ python3 -m venv venv
+  $ . venv/bin/activate
   ```
 
 2. Install the dependencies:
