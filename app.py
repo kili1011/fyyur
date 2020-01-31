@@ -34,6 +34,9 @@ class State(db.Model):
   cities = db.relationship('City', backref='state', lazy=True)
   venues = db.relationship('Venue', backref='state', lazy=True)
 
+  def __repr__(self):
+    return f'<id: {self.id} - {self.name}>'
+
 
 class City(db.Model):
   id = db.Column(db.Integer, primary_key=True)
@@ -41,42 +44,60 @@ class City(db.Model):
   state_id = db.Column(db.Integer, db.ForeignKey('state.id'), nullable=False)  
   venues = db.relationship('Venue', backref="city", lazy=True)
 
+  def __repr__(self):
+    return f'<id: {self.id} - {self.name}>'
+
 
 class Venue(db.Model):
-    __tablename__ = 'Venue'
+  __tablename__ = 'Venue'
 
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(), nullable=False, unique=True)
-    city_id = db.Column(db.Integer, db.ForeignKey('city.id'), nullable=False)
-    state_id = db.Column(db.Integer, db.ForeignKey('state.id'), nullable=False)
-    address = db.Column(db.String(120))
-    phone = db.Column(db.String(120))
-    image_link = db.Column(db.String(500))
-    facebook_link = db.Column(db.String(120))
+  id = db.Column(db.Integer, primary_key=True)
+  name = db.Column(db.String(), nullable=False, unique=True)
+  city_id = db.Column(db.Integer, db.ForeignKey('city.id'), nullable=False)
+  state_id = db.Column(db.Integer, db.ForeignKey('state.id'), nullable=False)
+  address = db.Column(db.String(120))
+  phone = db.Column(db.String(120))
+  image_link = db.Column(db.String(500))
+  facebook_link = db.Column(db.String(120))
+  shows = db.relationship('Show', backref="venue", lazy=True)
 
-    def __repr__(self):
-      return f'<{self.name} / {self.state}>'
+  def __repr__(self):
+    return f'<{self.name} / {self.state}>'
 
 
 class Artist(db.Model):
-    __tablename__ = 'Artist'
+  __tablename__ = 'Artist'
 
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String, nullable=False)
-    city = db.Column(db.String(120))
-    state = db.Column(db.String(120))
-    phone = db.Column(db.String(120))
-    genres = db.Column(db.String(120))
-    image_link = db.Column(db.String(500))
-    facebook_link = db.Column(db.String(120))
+  id = db.Column(db.Integer, primary_key=True)
+  name = db.Column(db.String, nullable=False)
+  city = db.Column(db.String(120))
+  state = db.Column(db.String(120))
+  phone = db.Column(db.String(120))
+  genres = db.Column(db.String(120))
+  image_link = db.Column(db.String(500))
+  facebook_link = db.Column(db.String(120))
+  shows = db.relationship('Show', backref="artist", lazy=True)
 
-    def __repr__(self):
-      return f'<Artist: {self.name} / City: {self.city}>'
+  def __repr__(self):
+    return f'<Artist: {self.name} / City: {self.city}>'
+
+
+class Show(db.Model):
+  id = db.Column(db.Integer, primary_key=True)
+  venue_id = db.Column(db.Integer, db.ForeignKey('Venue.id'), nullable=False)
+  artist_id = db.Column(db.Integer, db.ForeignKey('Artist.id'), nullable=False)
+  start_time = db.Column(db.DateTime, nullable=False)
+
+  def __repr__(self):
+    return f'<Show at: {self.venue.name} / Artist: {self.artist.name} / Start Time: {self.start_time}>'
 
 
 #----------------------------------------------------------------------------#
 # Filters.
 #----------------------------------------------------------------------------#
+
+# More on custom filters
+#   https://jinja.palletsprojects.com/en/2.11.x/api/#custom-filters
 
 def format_datetime(value, format='medium'):
   date = dateutil.parser.parse(value)
@@ -84,10 +105,12 @@ def format_datetime(value, format='medium'):
       format="EEEE MMMM, d, y 'at' h:mma"
   elif format == 'medium':
       format="EE MM, dd, y h:mma"
-  return babel.dates.format_datetime(date, format)
+  return babel.dates.format_datetime(date, format, locale='en_US')
 
+# Register Filter on the environment
 app.jinja_env.filters['datetime'] = format_datetime
 
+  
 #----------------------------------------------------------------------------#
 # Controllers.
 #----------------------------------------------------------------------------#
@@ -102,6 +125,10 @@ def index():
 
 @app.route('/venues')
 def venues():
+  # displays list of venues at /venues
+  #
+  # TODO: num_shows should be aggregated based on number of upcoming shows per venue.
+  #
   error = False
   data = []
   try:
@@ -110,6 +137,13 @@ def venues():
       area = {}
       area['city'] = city.name
       area['state'] = city.state.name
+      area['venues'] = []
+      for venue in city.venues:
+        venue_data = {}
+        venue_data['id'] = venue.id
+        venue_data['name'] = venue.name
+        area['venues'].append(venue_data)
+      area['venues'] = sorted(area['venues'], key=lambda i: i['name'])
       data.append(area)
   except:
     error = True
@@ -255,18 +289,27 @@ def delete_venue(venue_id):
 #  ----------------------------------------------------------------
 @app.route('/artists')
 def artists():
-  # TODO: replace with real data returned from querying the database
-  data=[{
-    "id": 4,
-    "name": "Guns N Petals",
-  }, {
-    "id": 5,
-    "name": "Matt Quevedo",
-  }, {
-    "id": 6,
-    "name": "The Wild Sax Band",
-  }]
-  return render_template('pages/artists.html', artists=data)
+  # displays an ordered list of artists at /artist
+  error = False
+  data=[]
+  try: 
+    all_artists = Artist.query.order_by(Artist.name).all()
+    for artist in all_artists:
+      artist_data = {}
+      artist_data['id'] = artist.id
+      artist_data['name'] = artist.name
+      data.append(artist_data)
+  except:
+    error = True
+    db.session.rollback()
+    print(sys.exc_info())
+  finally:
+    db.session.close()
+  if error:
+    abort(400)
+  else:
+    return render_template('pages/artists.html', artists=data)
+
 
 @app.route('/artists/search', methods=['POST'])
 def search_artists():
@@ -442,45 +485,34 @@ def create_artist_submission():
 @app.route('/shows')
 def shows():
   # displays list of shows at /shows
-  # TODO: replace with real venues data.
-  #       num_shows should be aggregated based on number of upcoming shows per venue.
-  data=[{
-    "venue_id": 1,
-    "venue_name": "The Musical Hop",
-    "artist_id": 4,
-    "artist_name": "Guns N Petals",
-    "artist_image_link": "https://images.unsplash.com/photo-1549213783-8284d0336c4f?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=300&q=80",
-    "start_time": "2019-05-21T21:30:00.000Z"
-  }, {
-    "venue_id": 3,
-    "venue_name": "Park Square Live Music & Coffee",
-    "artist_id": 5,
-    "artist_name": "Matt Quevedo",
-    "artist_image_link": "https://images.unsplash.com/photo-1495223153807-b916f75de8c5?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=334&q=80",
-    "start_time": "2019-06-15T23:00:00.000Z"
-  }, {
-    "venue_id": 3,
-    "venue_name": "Park Square Live Music & Coffee",
-    "artist_id": 6,
-    "artist_name": "The Wild Sax Band",
-    "artist_image_link": "https://images.unsplash.com/photo-1558369981-f9ca78462e61?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=794&q=80",
-    "start_time": "2035-04-01T20:00:00.000Z"
-  }, {
-    "venue_id": 3,
-    "venue_name": "Park Square Live Music & Coffee",
-    "artist_id": 6,
-    "artist_name": "The Wild Sax Band",
-    "artist_image_link": "https://images.unsplash.com/photo-1558369981-f9ca78462e61?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=794&q=80",
-    "start_time": "2035-04-08T20:00:00.000Z"
-  }, {
-    "venue_id": 3,
-    "venue_name": "Park Square Live Music & Coffee",
-    "artist_id": 6,
-    "artist_name": "The Wild Sax Band",
-    "artist_image_link": "https://images.unsplash.com/photo-1558369981-f9ca78462e61?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=794&q=80",
-    "start_time": "2035-04-15T20:00:00.000Z"
-  }]
-  return render_template('pages/shows.html', shows=data)
+  #
+  # TODO: num_shows should be aggregated based on number of upcoming shows per venue.
+  #
+  data=[]
+  error = False
+  try:
+    upcoming_shows = Show.query.all()
+    for show in upcoming_shows:
+      show_data = {}
+      show_data['venue_id'] = show.venue_id
+      show_data['venue_name'] = show.venue.name
+      show_data['artist_id'] = show.artist_id
+      show_data['artist_name'] = show.artist.name
+      show_data['artist_image_link'] = show.artist.image_link
+      show_data['start_time'] = show.start_time.strftime("%Y-%m-%d-T%H:%M:%S.000Z")
+      print(dateutil.parser.parse(show_data['start_time']))
+      data.append(show_data)
+    print(data)
+  except:
+    error = True
+    db.session.rollback()
+    print(sys.exc_info())
+  finally:
+    db.session.close()
+  if error:
+    abort(400)
+  else:
+    return render_template('pages/shows.html', shows=data)
 
 @app.route('/shows/create')
 def create_shows():
