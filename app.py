@@ -1,7 +1,6 @@
 #----------------------------------------------------------------------------#
 # Imports
 #----------------------------------------------------------------------------#
-
 import json
 import dateutil.parser
 import babel
@@ -14,10 +13,11 @@ from logging import Formatter, FileHandler
 from flask_wtf import Form
 from forms import *
 from flask_migrate import Migrate
+import datetime
+
 #----------------------------------------------------------------------------#
 # App Config.
 #----------------------------------------------------------------------------#
-
 app = Flask(__name__)
 moment = Moment(app)
 app.config.from_object('config')
@@ -28,26 +28,34 @@ migrate = Migrate(app, db)
 # Models.
 #----------------------------------------------------------------------------#
 
+#  Class State.
+#  ----------------------------------------------------------------
 class State(db.Model):
   id = db.Column(db.Integer, primary_key=True)
   name = db.Column(db.String(2), nullable=False, unique=True)
   cities = db.relationship('City', backref='state', lazy=True)
   venues = db.relationship('Venue', backref='state', lazy=True)
+  artists = db.relationship('Artist', backref='state', lazy=True)
 
   def __repr__(self):
     return f'<id: {self.id} - {self.name}>'
 
 
+#  Class City.
+#  ----------------------------------------------------------------
 class City(db.Model):
   id = db.Column(db.Integer, primary_key=True)
   name = db.Column(db.String(120), nullable=False)
   state_id = db.Column(db.Integer, db.ForeignKey('state.id'), nullable=False)  
   venues = db.relationship('Venue', backref="city", lazy=True)
+  artists = db.relationship('Artist', backref="city", lazy=True)
 
   def __repr__(self):
     return f'<id: {self.id} - {self.name}>'
 
 
+#  Class Venue.
+#  ----------------------------------------------------------------
 class Venue(db.Model):
   __tablename__ = 'Venue'
 
@@ -61,31 +69,73 @@ class Venue(db.Model):
   facebook_link = db.Column(db.String(120))
   shows = db.relationship('Show', backref="venue", lazy=True)
 
-  def getNumUpcomingShows(self):
-    today = datetime.datetime.today()        
-    upcoming_shows = Show.query.filter(Show.start_time >= today, Show.venue_id==venue_data['id']).all()
-
   def __repr__(self):
     return f'<{self.name} / {self.state}>'
 
+  def getListOfUpcomingShows(self):
+    # Returns a list of upcoming shows in this venue
+    today = self.getCurrentDate()
+    all_shows = self.shows
+    upcoming_shows = []
+    for show in all_shows:
+      if (show.start_time >= today):
+        show_to_add = {}
+        show_to_add['artist_id'] = show.artist_id
+        show_to_add['artist_name'] = show.artist.name
+        show_to_add['artist_image_link'] = show.artist.image_link
+        show_to_add['venue_id'] = show.venue_id
+        show_to_add['venue_name'] = show.venue.name
+        show_to_add['start_time'] = show.start_time.strftime("%Y-%m-%d-T%H:%M:%S.000Z")
+        upcoming_shows.append(show_to_add)
+    return upcoming_shows     
 
+  def getListOfPastShows(self):
+    # Returns a list of past shows in this venue
+    today = self.getCurrentDate()
+    all_shows = self.shows
+    past_shows = []
+    for show in all_shows:
+      if show.start_time <= today:
+        show_to_add = {}
+        show_to_add['artist_id'] = show.artist_id
+        show_to_add['artist_name'] = show.artist.name
+        show_to_add['artist_image_link'] = show.artist.image_link
+        show_to_add['venue_id'] = show.venue_id
+        show_to_add['venue_name'] = show.venue.name
+        show_to_add['start_time'] = show.start_time.strftime("%Y-%m-%d-T%H:%M:%S.000Z")
+        past_shows.append(show_to_add)
+    return past_shows  
+
+  @staticmethod
+  def getCurrentDate():
+    # Returns the current date as datetime
+    current_date = datetime.datetime.today()
+    return current_date  
+
+
+#  Class Artist.
+#  ----------------------------------------------------------------
 class Artist(db.Model):
   __tablename__ = 'Artist'
 
   id = db.Column(db.Integer, primary_key=True)
   name = db.Column(db.String, nullable=False)
-  city = db.Column(db.String(120))
-  state = db.Column(db.String(120))
+  city_id = db.Column(db.Integer, db.ForeignKey('city.id'), nullable=False)
+  state_id = db.Column(db.Integer, db.ForeignKey('state.id'), nullable=False)
   phone = db.Column(db.String(120))
-  genres = db.Column(db.String(120))
   image_link = db.Column(db.String(500))
   facebook_link = db.Column(db.String(120))
-  shows = db.relationship('Show', backref="artist", lazy=True)
+  website = db.Column(db.String(120))
+  seeking_venues = db.Column(db.Boolean, nullable=False, default=False)
+  seeking_description = db.Column(db.String())
+  shows = db.relationship('Show', backref="artist", lazy="dynamic")
 
   def __repr__(self):
     return f'<Artist: {self.name} / City: {self.city}>'
 
 
+#  Class Show.
+#  ----------------------------------------------------------------
 class Show(db.Model):
   id = db.Column(db.Integer, primary_key=True)
   venue_id = db.Column(db.Integer, db.ForeignKey('Venue.id'), nullable=False)
@@ -96,12 +146,27 @@ class Show(db.Model):
     return f'<Show at: {self.venue.name} / Artist: {self.artist.name} / Start Time: {self.start_time}>'
 
 
+#  Class Genres
+#  ----------------------------------------------------------------
+class Genre(db.Model):
+  id = db.Column(db.Integer, primary_key=True)
+  name = db.Column(db.String(), nullable=False, unique=True)
+  artists = db.relationship('Artist', secondary='genre_artist', lazy='subquery', 
+    backref=db.backref('genres', lazy=True))
+  
+  def __repr__(self):
+    return self.name
+  
+
+genre_artist = db.Table('genre_artist',
+  db.Column('artist_id', db.Integer, db.ForeignKey('Artist.id'), primary_key=True),
+  db.Column('genre_id', db.Integer, db.ForeignKey('genre.id'), primary_key=True)
+  )
+
+
 #----------------------------------------------------------------------------#
 # Filters.
 #----------------------------------------------------------------------------#
-
-# More on custom filters
-#   https://jinja.palletsprojects.com/en/2.11.x/api/#custom-filters
 
 def format_datetime(value, format='medium'):
   date = dateutil.parser.parse(value)
@@ -111,9 +176,7 @@ def format_datetime(value, format='medium'):
       format="EE MM, dd, y h:mma"
   return babel.dates.format_datetime(date, format, locale='en_US')
 
-# Register Filter on the environment
 app.jinja_env.filters['datetime'] = format_datetime
-
 
 #----------------------------------------------------------------------------#
 # Controllers.
@@ -126,14 +189,9 @@ def index():
 
 #  Venues
 #  ----------------------------------------------------------------
-import datetime
-
 @app.route('/venues')
 def venues():
   # displays list of venues at /venues
-  #
-  # TODO: num_shows should be aggregated based on number of upcoming shows per venue.
-  #
   error = False
   data = []
   try:
@@ -147,14 +205,7 @@ def venues():
         venue_data = {}
         venue_data['id'] = venue.id
         venue_data['name'] = venue.name
-        
-        # Check number of upcoming shows
-        today = datetime.datetime.today()        
-        upcoming_shows = Show.query.filter(Show.start_time >= today, Show.venue_id==venue_data['id']).all()
-        venue_data['num_upcoming_shows'] = len(upcoming_shows)
-        
-        # append the venue dictionary to the data list
-        print(venue_data)
+        venue_data['num_upcoming_shows'] = len(venue.getListOfUpcomingShows())
         area['venues'].append(venue_data)
       area['venues'] = sorted(area['venues'], key=lambda i: i['name'])
       data.append(area)
@@ -199,7 +250,6 @@ def show_venue(venue_id):
   data = {}
   try:
     venue = Venue.query.get(venue_id)
-    print(venue)   
     data['id'] = venue.id
     data['name'] = venue.name
     data['genres'] = ["Jazz", "Reggae", "Swing", "Classical", "Folk"]
@@ -212,12 +262,10 @@ def show_venue(venue_id):
     data['seeking_talent'] = True
     data['seeking_description'] = "We are on the lookout for a local artist to play every two weeks. Please call us."
     data['image_link'] = venue.image_link
-
-    # TODO: Muss noch ergänzt werden
-    data['past_shows'] = []
-    data['upcoming_shows'] = []
-    data['past_shows_count'] = 0
-    data['upcoming_shows_count'] = 0
+    data['past_shows'] = venue.getListOfPastShows()
+    data['upcoming_shows'] = venue.getListOfUpcomingShows()
+    data['past_shows_count'] = len(venue.getListOfPastShows())
+    data['upcoming_shows_count'] = len(venue.getListOfUpcomingShows())
   except:
     error = True
     print(sys.exc_info())
@@ -297,83 +345,64 @@ def search_artists():
   }
   return render_template('pages/search_artists.html', results=response, search_term=request.form.get('search_term', ''))
 
-@app.route('/artists/<int:artist_id>')
+
+@app.route('/artists/<artist_id>')
 def show_artist(artist_id):
   # shows the venue page with the given venue_id
   # TODO: replace with real venue data from the venues table, using venue_id
-  data1={
-    "id": 4,
-    "name": "Guns N Petals",
-    "genres": ["Rock n Roll"],
-    "city": "San Francisco",
-    "state": "CA",
-    "phone": "326-123-5000",
-    "website": "https://www.gunsnpetalsband.com",
-    "facebook_link": "https://www.facebook.com/GunsNPetals",
-    "seeking_venue": True,
-    "seeking_description": "Looking for shows to perform at in the San Francisco Bay Area!",
-    "image_link": "https://images.unsplash.com/photo-1549213783-8284d0336c4f?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=300&q=80",
-    "past_shows": [{
-      "venue_id": 1,
-      "venue_name": "The Musical Hop",
-      "venue_image_link": "https://images.unsplash.com/photo-1543900694-133f37abaaa5?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=400&q=60",
-      "start_time": "2019-05-21T21:30:00.000Z"
-    }],
-    "upcoming_shows": [],
-    "past_shows_count": 1,
-    "upcoming_shows_count": 0,
-  }
-  data2={
-    "id": 5,
-    "name": "Matt Quevedo",
-    "genres": ["Jazz"],
-    "city": "New York",
-    "state": "NY",
-    "phone": "300-400-5000",
-    "facebook_link": "https://www.facebook.com/mattquevedo923251523",
-    "seeking_venue": False,
-    "image_link": "https://images.unsplash.com/photo-1495223153807-b916f75de8c5?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=334&q=80",
-    "past_shows": [{
-      "venue_id": 3,
-      "venue_name": "Park Square Live Music & Coffee",
-      "venue_image_link": "https://images.unsplash.com/photo-1485686531765-ba63b07845a7?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=747&q=80",
-      "start_time": "2019-06-15T23:00:00.000Z"
-    }],
-    "upcoming_shows": [],
-    "past_shows_count": 1,
-    "upcoming_shows_count": 0,
-  }
-  data3={
-    "id": 6,
-    "name": "The Wild Sax Band",
-    "genres": ["Jazz", "Classical"],
-    "city": "San Francisco",
-    "state": "CA",
-    "phone": "432-325-5432",
-    "seeking_venue": False,
-    "image_link": "https://images.unsplash.com/photo-1558369981-f9ca78462e61?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=794&q=80",
-    "past_shows": [],
-    "upcoming_shows": [{
-      "venue_id": 3,
-      "venue_name": "Park Square Live Music & Coffee",
-      "venue_image_link": "https://images.unsplash.com/photo-1485686531765-ba63b07845a7?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=747&q=80",
-      "start_time": "2035-04-01T20:00:00.000Z"
-    }, {
-      "venue_id": 3,
-      "venue_name": "Park Square Live Music & Coffee",
-      "venue_image_link": "https://images.unsplash.com/photo-1485686531765-ba63b07845a7?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=747&q=80",
-      "start_time": "2035-04-08T20:00:00.000Z"
-    }, {
-      "venue_id": 3,
-      "venue_name": "Park Square Live Music & Coffee",
-      "venue_image_link": "https://images.unsplash.com/photo-1485686531765-ba63b07845a7?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=747&q=80",
-      "start_time": "2035-04-15T20:00:00.000Z"
-    }],
-    "past_shows_count": 0,
-    "upcoming_shows_count": 3,
-  }
-  data = list(filter(lambda d: d['id'] == artist_id, [data1, data2, data3]))[0]
-  return render_template('pages/show_artist.html', artist=data)
+  # TODO: view wants to iterate the genres -> error exception: Object not iterable
+
+  error = False
+  data = {}
+  artist = Artist.query.get(artist_id)
+  today = datetime.datetime.today()
+  # generates a list of past shows
+  past_shows = artist.shows.filter(Show.start_time <= today )
+  list_of_past_shows = []
+  for show in past_shows.all():
+    show_info = {}
+    show_info['venue_id'] = show.venue_id
+    show_info['venue_name'] = show.venue.name
+    show_info['venue_image_link'] = show.venue.image_link
+    show_info['start_time'] = show.start_time.strftime("%Y-%m-%d-T%H:%M:%S.000Z")
+    list_of_past_shows.append(show_info)
+  # generates a list of upcoming shows
+  upcoming_shows = artist.shows.filter(Show.start_time >= today)
+  list_of_upcoming_shows = [] 
+  for show in upcoming_shows.all():
+    show_info = {}
+    show_info['venue_id'] = show.venue_id
+    show_info['venue_name'] = show.venue.name
+    show_info['venue_image_link'] = show.venue.image_link
+    show_info['start_time'] = show.start_time.strftime("%Y-%m-%d-T%H:%M:%S.000Z")
+    list_of_upcoming_shows.append(show_info)
+  try:
+    data['id'] = artist.id
+    data['name'] = artist.name
+    data['genres'] = artist.genres 
+    data['city'] = artist.city.name
+    data['state'] = artist.state.name
+    data['phone'] = artist.phone
+    data['website'] = artist.website
+    data['facebook_link'] = artist.facebook_link
+    data['seeking_venue'] = artist.seeking_venues
+    data['seeking_description'] = artist.seeking_description
+    data['image_link'] = artist.image_link
+    data['past_shows'] = list_of_past_shows
+    data['past_shows_count'] = past_shows.count()
+    data['upcoming_shows'] = list_of_upcoming_shows
+    data['upcoming_shows_count'] = upcoming_shows.count()   
+  except:
+    error = True
+    db.session.rollback()
+    print(sys.exc_info())
+  finally:
+    db.session.close()
+  if error:
+    abort(400)
+  else:
+    return render_template('pages/show_artist.html', artist=data)
+
 
 #  Update
 #  ----------------------------------------------------------------
