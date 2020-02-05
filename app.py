@@ -10,10 +10,11 @@ from flask_moment import Moment
 from flask_sqlalchemy import SQLAlchemy
 import logging
 from logging import Formatter, FileHandler
-from flask_wtf import Form
+from flask_wtf import Form, FlaskForm
 from forms import *
 from flask_migrate import Migrate
 import datetime
+
 
 #----------------------------------------------------------------------------#
 # App Config.
@@ -23,6 +24,7 @@ moment = Moment(app)
 app.config.from_object('config')
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
+
 
 #----------------------------------------------------------------------------#
 # Models.
@@ -153,6 +155,8 @@ class Genre(db.Model):
   name = db.Column(db.String(), nullable=False, unique=True)
   artists = db.relationship('Artist', secondary='genre_artist', lazy='subquery', 
     backref=db.backref('genres', lazy=True))
+  venues = db.relationship('Venue', secondary='genre_venue', lazy='subquery',
+    backref=db.backref('genres', lazy=True))
   
   def __repr__(self):
     return self.name
@@ -160,9 +164,11 @@ class Genre(db.Model):
 
 genre_artist = db.Table('genre_artist',
   db.Column('artist_id', db.Integer, db.ForeignKey('Artist.id'), primary_key=True),
-  db.Column('genre_id', db.Integer, db.ForeignKey('genre.id'), primary_key=True)
-  )
+  db.Column('genre_id', db.Integer, db.ForeignKey('genre.id'), primary_key=True))
 
+genre_venue = db.Table('genre_venue',
+  db.Column('venue_id', db.Integer, db.ForeignKey('Venue.id'), primary_key=True),
+  db.Column('genre_id', db.Integer, db.ForeignKey('genre.id'), primary_key=True))
 
 #----------------------------------------------------------------------------#
 # Filters.
@@ -241,7 +247,6 @@ def search_venues():
 def show_venue(venue_id):
   # shows the venue page with the given venue_id
   
-  # TODO: add column 'genres' to Venue
   # TODO: add column 'seeking talent' to Venue
   # TODO: add column 'seeking description' to Venue
   # TODO: add column 'website' to Venue
@@ -252,7 +257,7 @@ def show_venue(venue_id):
     venue = Venue.query.get(venue_id)
     data['id'] = venue.id
     data['name'] = venue.name
-    data['genres'] = ["Jazz", "Reggae", "Swing", "Classical", "Folk"]
+    data['genres'] = venue.genres
     data['address'] = venue.address
     data['city'] = venue.city.name
     data['state'] = venue.state.name
@@ -271,7 +276,8 @@ def show_venue(venue_id):
     print(sys.exc_info())
   if error:
     abort(400)
-  else:  
+  else:
+    print(data)  
     return render_template('pages/show_venue.html', venue=data)
 
 
@@ -284,16 +290,55 @@ def create_venue_form():
   return render_template('forms/new_venue.html', form=form)
 
 @app.route('/venues/create', methods=['POST'])
-def create_venue_submission():
-  # TODO: insert form data as a new Venue record in the db, instead
-  # TODO: modify data to be the data object returned from db insertion
+# TODO: insert form data as a new Venue record in the db, instead
+# TODO: modify data to be the data object returned from db insertion
 
-  # on successful db insert, flash success
+def create_venue_submission():
+  # Checks weather state exists in database
+  #   If State doesn't exist it creates a new db entry
+  #   Returns the id of given state
+  state = request.form['state']
+  state_in_table = State.query.filter_by(name=state)
+  if (state_in_table.count() > 0):
+    stateId = state_in_table.first().id
+  else:
+    new_state = State(name=state)
+    db.session.add(new_state)
+    db.session.commit()
+    stateId = new_state.id
+  # Checks weather city exists in database
+  #   If State doesn't exist it creates a new db entry
+  #   Returns the id of given state
+  city = request.form['city']
+  city_in_table = City.query.filter_by(name=city) 
+  if (city_in_table.count() > 0):
+    cityId = city_in_table.first().id
+  else:
+    new_city = City(name = city, state_id = stateId)
+    db.session.add(new_city)
+    db.session.commit()
+    cityId = new_city.id
+  # Genres
+  #
+  #
+  #
+  new_venue = Venue(
+    name=("%s" % request.form['name']),
+    city_id= cityId,
+    state_id = stateId,
+    address = request.form['address'],
+    phone = request.form['phone'],
+    facebook_link = request.form['facebook_link']
+  )
+  db.session.add(new_venue)
+  db.session.commit()
+  db.session.close() 
+
   flash('Venue ' + request.form['name'] + ' was successfully listed!')
-  # TODO: on unsuccessful db insert, flash an error instead.
-  # e.g., flash('An error occurred. Venue ' + data.name + ' could not be listed.')
-  # see: http://flask.pocoo.org/docs/1.0/patterns/flashing/
   return render_template('pages/home.html')
+
+
+
 
 @app.route('/venues/<venue_id>', methods=['DELETE'])
 def delete_venue(venue_id):
@@ -425,6 +470,7 @@ def edit_artist(artist_id):
   # TODO: populate form with fields from artist with ID <artist_id>
   return render_template('forms/edit_artist.html', form=form, artist=artist)
 
+
 @app.route('/artists/<int:artist_id>/edit', methods=['POST'])
 def edit_artist_submission(artist_id):
   # TODO: take values from the form submitted, and update existing
@@ -452,11 +498,17 @@ def edit_venue(venue_id):
   # TODO: populate form with values from venue with ID <venue_id>
   return render_template('forms/edit_venue.html', form=form, venue=venue)
 
+
+
 @app.route('/venues/<int:venue_id>/edit', methods=['POST'])
 def edit_venue_submission(venue_id):
   # TODO: take values from the form submitted, and update existing
   # venue record with ID <venue_id> using the new attributes
   return redirect(url_for('show_venue', venue_id=venue_id))
+
+
+
+
 
 #  Create Artist
 #  ----------------------------------------------------------------
