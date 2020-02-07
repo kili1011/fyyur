@@ -69,6 +69,9 @@ class Venue(db.Model):
   phone = db.Column(db.String(120))
   image_link = db.Column(db.String(500))
   facebook_link = db.Column(db.String(120))
+  seeking_talent = db.Column(db.Boolean, default=False)
+  seeking_description= db.Column(db.String(120))
+  website = db.Column(db.String(120))
   shows = db.relationship('Show', backref="venue", lazy=True)
 
   def __repr__(self):
@@ -246,11 +249,6 @@ def search_venues():
 @app.route('/venues/<venue_id>')
 def show_venue(venue_id):
   # shows the venue page with the given venue_id
-  
-  # TODO: add column 'seeking talent' to Venue
-  # TODO: add column 'seeking description' to Venue
-  # TODO: add column 'website' to Venue
-
   error = False
   data = {}
   try:
@@ -262,10 +260,10 @@ def show_venue(venue_id):
     data['city'] = venue.city.name
     data['state'] = venue.state.name
     data['phone'] = venue.phone
-    data['website'] = "www.ThisIsTheVenueWebsite.com"
+    data['website'] = venue.website
     data['facebook_link'] = venue.facebook_link
-    data['seeking_talent'] = True
-    data['seeking_description'] = "We are on the lookout for a local artist to play every two weeks. Please call us."
+    data['seeking_talent'] = venue.seeking_talent
+    data['seeking_description'] = venue.seeking_description
     data['image_link'] = venue.image_link
     data['past_shows'] = venue.getListOfPastShows()
     data['upcoming_shows'] = venue.getListOfUpcomingShows()
@@ -277,7 +275,6 @@ def show_venue(venue_id):
   if error:
     abort(400)
   else:
-    print(data)  
     return render_template('pages/show_venue.html', venue=data)
 
 
@@ -290,54 +287,64 @@ def create_venue_form():
   return render_template('forms/new_venue.html', form=form)
 
 @app.route('/venues/create', methods=['POST'])
-# TODO: insert form data as a new Venue record in the db, instead
-# TODO: modify data to be the data object returned from db insertion
-
 def create_venue_submission():
-  # Checks weather state exists in database
-  #   If State doesn't exist it creates a new db entry
-  #   Returns the id of given state
-  state = request.form['state']
-  state_in_table = State.query.filter_by(name=state)
-  if (state_in_table.count() > 0):
-    stateId = state_in_table.first().id
-  else:
-    new_state = State(name=state)
-    db.session.add(new_state)
+  error = False
+  try:
+    #  get stateId from form
+    state = request.form['state']
+    state_in_table = State.query.filter_by(name=state)
+    if (state_in_table.count() > 0):
+      stateId = state_in_table.first().id
+    else:
+      new_state = State(name=state)
+      db.session.add(new_state)
+      db.session.commit()
+      stateId = new_state.id
+
+    #  get cityId from form
+    city = request.form['city']
+    city_in_table = City.query.filter_by(name=city) 
+    if (city_in_table.count() > 0):
+      cityId = city_in_table.first().id
+    else:
+      new_city = City(name = city, state_id = stateId)
+      db.session.add(new_city)
+      db.session.commit()
+      cityId = new_city.id
+
+    # Creates a new database entry
+    new_venue = Venue(
+      name=("%s" % request.form['name']),
+      city_id= cityId,
+      state_id = stateId,
+      address = request.form['address'],
+      phone = request.form['phone'],
+      facebook_link = request.form['facebook_link']
+    )
+    db.session.add(new_venue)
     db.session.commit()
-    stateId = new_state.id
-  # Checks weather city exists in database
-  #   If State doesn't exist it creates a new db entry
-  #   Returns the id of given state
-  city = request.form['city']
-  city_in_table = City.query.filter_by(name=city) 
-  if (city_in_table.count() > 0):
-    cityId = city_in_table.first().id
-  else:
-    new_city = City(name = city, state_id = stateId)
-    db.session.add(new_city)
+
+    # Adds the Genres to the new venue
+    genres_to_add = request.form.getlist('genres')
+    print(genres_to_add)
+    venue_added = Venue.query.order_by(Venue.id.desc()).first()
+    for genre in genres_to_add:
+      query = Genre.query.filter(Genre.name==genre).first()
+      venue_added.genres.append(query)  
     db.session.commit()
-    cityId = new_city.id
-  # Genres
-  #
-  #
-  #
-  new_venue = Venue(
-    name=("%s" % request.form['name']),
-    city_id= cityId,
-    state_id = stateId,
-    address = request.form['address'],
-    phone = request.form['phone'],
-    facebook_link = request.form['facebook_link']
-  )
-  db.session.add(new_venue)
-  db.session.commit()
-  db.session.close() 
-
-  flash('Venue ' + request.form['name'] + ' was successfully listed!')
-  return render_template('pages/home.html')
-
-
+    
+  except:
+    error = True
+    db.session.rollback()
+    print(sys.exc_info())
+  finally:
+    db.session.close()   
+  if error:
+    abort(400)
+  else:
+    venue = Venue.query.order_by(Venue.id.desc()).first()
+    flash('Venue ' + venue.name + ' was successfully listed!')
+    return render_template('pages/home.html')
 
 
 @app.route('/venues/<venue_id>', methods=['DELETE'])
