@@ -3,13 +3,15 @@
 {% block content %}
 {% for area in areas %}
 <h3>{{ area.city }}, {{ area.state }}</h3>
+	<div id="error" class="hidden">Something went wrong!</div>
 	<ul class="items">
 		{% for venue in area.venues %}
-		<li>
+		<li id="{{ venue.id }}">
 			<a href="/venues/{{ venue.id }}">
 				<i class="fas fa-music"></i>
 				<div class="item">
 					<h5>{{ venue.name }}</h5>
+					<button class="delete-todo" data-id="{{ venue.id }}">&cross;</button>
 					<p>Upcoming Shows: {{ venue.num_upcoming_shows }}</p>
 				</div>
 			</a>
@@ -17,4 +19,30 @@
 		{% endfor %}
 	</ul>
 {% endfor %}
+
+<script>
+	const deleteBtn = document.querySelectorAll('.delete-todo');
+	for(let i = 0; i < deleteBtn.length; i++){
+		btn = deleteBtn[i];
+		btn.onclick = e => {
+			e.preventDefault();
+			const deleteId = e.target.dataset['id'];
+			console.log(e)
+			fetch('venues/delete/' + deleteId, {
+				method: 'DELETE',
+			})
+			.then(function(){
+				const item = document.getElementById(deleteId);
+				item.remove();
+			})
+			.then(function(){
+				document.getElementById('error').className = 'hidden'; 
+			})
+			.catch(function(){
+				document.getElementById('error').className = '';  
+			})
+		}
+	}
+</script>
+
 {% endblock %}

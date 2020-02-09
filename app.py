@@ -124,7 +124,7 @@ class Artist(db.Model):
   __tablename__ = 'Artist'
 
   id = db.Column(db.Integer, primary_key=True)
-  name = db.Column(db.String, nullable=False)
+  name = db.Column(db.String, nullable=False, unique=True)
   city_id = db.Column(db.Integer, db.ForeignKey('city.id'), nullable=False)
   state_id = db.Column(db.Integer, db.ForeignKey('state.id'), nullable=False)
   phone = db.Column(db.String(120))
@@ -232,18 +232,15 @@ def venues():
 
 @app.route('/venues/search', methods=['POST'])
 def search_venues():
-  # TODO: implement search on artists with partial string search. Ensure it is case-insensitive.
-  # seach for Hop should return "The Musical Hop".
-  # search for "Music" should return "The Musical Hop" and "Park Square Live Music & Coffee"
-  response={
-    "count": 1,
-    "data": [{
-      "id": 2,
-      "name": "The Dueling Pianos Bar",
-      "num_upcoming_shows": 0,
-    }]
-  }
-  return render_template('pages/search_venues.html', results=response, search_term=request.form.get('search_term', ''))
+  search_term=request.form['search_term']
+  query = Venue.query.filter(Venue.name.ilike('%' + str(search_term) + '%'))
+  response={}
+  data = []
+  for venue in query.all():
+    data.append(venue)
+  response['count'] = query.count()
+  response['data'] = data
+  return render_template('pages/search_venues.html', results=response, search_term=search_term)
 
 
 @app.route('/venues/<venue_id>')
@@ -288,6 +285,7 @@ def create_venue_form():
 
 @app.route('/venues/create', methods=['POST'])
 def create_venue_submission():
+  # called upon submitting the new venue listing form
   error = False
   try:
     #  get stateId from form
@@ -300,7 +298,6 @@ def create_venue_submission():
       db.session.add(new_state)
       db.session.commit()
       stateId = new_state.id
-
     #  get cityId from form
     city = request.form['city']
     city_in_table = City.query.filter_by(name=city) 
@@ -311,7 +308,6 @@ def create_venue_submission():
       db.session.add(new_city)
       db.session.commit()
       cityId = new_city.id
-
     # Creates a new database entry
     new_venue = Venue(
       name=("%s" % request.form['name']),
@@ -323,38 +319,39 @@ def create_venue_submission():
     )
     db.session.add(new_venue)
     db.session.commit()
-
     # Adds the Genres to the new venue
     genres_to_add = request.form.getlist('genres')
-    print(genres_to_add)
     venue_added = Venue.query.order_by(Venue.id.desc()).first()
     for genre in genres_to_add:
       query = Genre.query.filter(Genre.name==genre).first()
       venue_added.genres.append(query)  
     db.session.commit()
-    
   except:
     error = True
     db.session.rollback()
     print(sys.exc_info())
   finally:
     db.session.close()   
+    venue = Venue.query.order_by(Venue.id.desc()).first()
   if error:
     abort(400)
+    flash('An error ocurred. Venue ' + request.form['name'] + ' could not be listed.')
   else:
-    venue = Venue.query.order_by(Venue.id.desc()).first()
     flash('Venue ' + venue.name + ' was successfully listed!')
-    return render_template('pages/home.html')
+  return render_template('pages/home.html')
 
 
-@app.route('/venues/<venue_id>', methods=['DELETE'])
+@app.route('/venues/delete/<venue_id>', methods=['DELETE'])
 def delete_venue(venue_id):
-  # TODO: Complete this endpoint for taking a venue_id, and using
-  # SQLAlchemy ORM to delete a record. Handle cases where the session commit could fail.
-
-  # BONUS CHALLENGE: Implement a button to delete a Venue on a Venue Page, have it so that
-  # clicking that button delete it from the db then redirect the user to the homepage
-  return None
+  try:
+    venue_to_delete = Venue.query.get(venue_id)
+    db.session.delete(venue_to_delete)
+    db.session.commit()
+  except:
+    db.session.rollback()
+  finally:
+    db.session.close()
+  return jsonify({'success' : True})
 
 #  Artists
 #  ----------------------------------------------------------------
@@ -384,26 +381,20 @@ def artists():
 
 @app.route('/artists/search', methods=['POST'])
 def search_artists():
-  # TODO: implement search on artists with partial string search. Ensure it is case-insensitive.
-  # seach for "A" should return "Guns N Petals", "Matt Quevado", and "The Wild Sax Band".
-  # search for "band" should return "The Wild Sax Band".
-  response={
-    "count": 1,
-    "data": [{
-      "id": 4,
-      "name": "Guns N Petals",
-      "num_upcoming_shows": 0,
-    }]
-  }
-  return render_template('pages/search_artists.html', results=response, search_term=request.form.get('search_term', ''))
+  search_term=request.form['search_term']
+  query = Artist.query.filter(Artist.name.ilike('%' + str(search_term) + '%'))
+  response={}
+  data = []
+  for venue in query.all():
+    data.append(venue)
+  response['count'] = query.count()
+  response['data'] = data
+  return render_template('pages/search_venues.html', results=response, search_term=search_term)
 
 
 @app.route('/artists/<artist_id>')
 def show_artist(artist_id):
   # shows the venue page with the given venue_id
-  # TODO: replace with real venue data from the venues table, using venue_id
-  # TODO: view wants to iterate the genres -> error exception: Object not iterable
-
   error = False
   data = {}
   artist = Artist.query.get(artist_id)
@@ -515,8 +506,6 @@ def edit_venue_submission(venue_id):
 
 
 
-
-
 #  Create Artist
 #  ----------------------------------------------------------------
 
@@ -528,13 +517,57 @@ def create_artist_form():
 @app.route('/artists/create', methods=['POST'])
 def create_artist_submission():
   # called upon submitting the new artist listing form
-  # TODO: insert form data as a new Venue record in the db, instead
-  # TODO: modify data to be the data object returned from db insertion
-
-  # on successful db insert, flash success
-  flash('Artist ' + request.form['name'] + ' was successfully listed!')
-  # TODO: on unsuccessful db insert, flash an error instead.
-  # e.g., flash('An error occurred. Artist ' + data.name + ' could not be listed.')
+  error = False
+  try:
+    #  get stateId 
+    state = request.form['state']
+    state_in_table = State.query.filter_by(name=state)
+    if (state_in_table.count() > 0):
+      stateId = state_in_table.first().id
+    else:
+      new_state = State(name=state)
+      db.session.add(new_state)
+      db.session.commit()
+      stateId = new_state.id
+    #  get cityId
+    city = request.form['city']
+    city_in_table = City.query.filter_by(name=city) 
+    if (city_in_table.count() > 0):
+      cityId = city_in_table.first().id
+    else:
+      new_city = City(name = city, state_id = stateId)
+      db.session.add(new_city)
+      db.session.commit()
+      cityId = new_city.id
+    # Creates a new database entry
+    new_artist = Artist(
+      name=("%s" % request.form['name']),
+      city_id= cityId,
+      state_id = stateId,
+      phone = request.form['phone'],
+      facebook_link = request.form['facebook_link']
+    )
+    db.session.add(new_artist)
+    db.session.commit()
+    # Adds the Genres to the new artist
+    genres_to_add = request.form.getlist('genres')
+    artist_added = Artist.query.order_by(Artist.id.desc()).first()
+    for genre in genres_to_add:
+      query = Genre.query.filter(Genre.name==genre).first()
+      artist_added.genres.append(query)  
+    db.session.commit()
+  except:
+    error = True
+    db.session.rollback()
+    print(sys.exc_info())
+  finally:
+    db.session.close()   
+    artist = Artist.query.order_by(Artist.id.desc()).first()
+  if error:
+    abort(400)
+    flash('An error ocurred. Artist ' + request.form['name'] + ' could not be listed.')
+  else:
+    flash('Artist ' + artist.name + ' was successfully listed!')
   return render_template('pages/home.html')
 
 
@@ -582,14 +615,36 @@ def create_shows():
 @app.route('/shows/create', methods=['POST'])
 def create_show_submission():
   # called to create new shows in the db, upon submitting new show listing form
-  # TODO: insert form data as a new Show record in the db, instead
+  error = False
+  try: 
+    artist_id = request.form['artist_id']
+    venue_id = request.form['venue_id'] 
+    check_artist = Artist.query.filter(Artist.id == artist_id).count()
+    check_venue = Venue.query.filter(Venue.id == venue_id).count()
+    if (check_artist > 0 and check_venue > 0):
+      new_show = Show(
+        venue_id = venue_id,
+        artist_id = artist_id,
+        start_time = dateutil.parser.parse(request.form['start_time'])
+      )
+      db.session.add(new_show)
+      db.session.commit()
+      flash_message = 'Show was successfully listed!'
+    else:
+      db.session.rollback()
+      flash_message = 'Show was not listed. Check Venue and Artist Id.'
+  except:
+    error = True
+    db.session.rollback()
+    print(sys.exc_info())
+  finally:
+    db.session.close()
+  if error:
+    abort(400)
+  else:
+    flash(flash_message)
+    return render_template('pages/home.html')
 
-  # on successful db insert, flash success
-  flash('Show was successfully listed!')
-  # TODO: on unsuccessful db insert, flash an error instead.
-  # e.g., flash('An error occurred. Show could not be listed.')
-  # see: http://flask.pocoo.org/docs/1.0/patterns/flashing/
-  return render_template('pages/home.html')
 
 @app.errorhandler(404)
 def not_found_error(error):

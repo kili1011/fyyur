@@ -124,6 +124,8 @@ ul.items > li:hover h5 {
 .item h5 {
   margin-top: 0;
   margin-bottom: 5px;
+  display: inline-block;
+  width: 264px;
 }
 img {
   max-width: 100%;
@@ -208,4 +210,7 @@ h2.monospace {
 }
 .subtitle {
   opacity: 0.5;
+}
+.hidden{
+  display: none;
 }
