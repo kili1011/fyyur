@@ -27,6 +27,14 @@ Our tech stack will include:
 * **Flask-Migrate** for creating and running schema migrations
 * **HTML**, **CSS**, and **Javascript** with [Bootstrap 3](https://getbootstrap.com/docs/3.4/customize/) for our website's frontend
 
+
+### Database Setup
+With Postgres running, restore a database using the trivia.psql file provided. From the backend folder in terminal run:
+```bash
+psql fyyur < fyyur.psql
+```
+
+
 ### Main Files: Project Structure
 
   ```sh
